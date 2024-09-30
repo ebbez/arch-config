@@ -2,6 +2,11 @@
 
 subvol_names=("@ @home @pkg @log @tmp @snapshots @swap")
 subvol_mountpoints=("/ /home/ /var/cache/pacman/pkg /var/log /var/tmp /.snapshots /swap")
+base_packages="linux linux-firmware base base-devel cryptsetup btrfs-progs"
+network_packages="networkmanager ufw"
+kde_packages="plasma-meta xdg-desktop-portal-kde xwaylandvideobridge dolphin"
+hypr_packages="hyprland xdg-desktop-portal-hyprland xdg-desktop-portal-kde polkit polkit-kde-agent qt5-wayland qt6-wayland gtk3 gtk4 waybar brightnessctl pavucontrol kitty dolphin"
+userapps="neovim git man htop"
 
 partition_disk() {
 	# Clear disk partition table and set to GPT format
