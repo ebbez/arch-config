@@ -4,10 +4,16 @@ declare -r SUBVOL_NAMES=("@ @home @pkg @log @tmp @snapshots @swap")
 declare -r SUBVOL_MOUNTPOINTS=("/ /home/ /var/cache/pacman/pkg /var/log /var/tmp /.snapshots /swap")
 
 declare -r BASE_PACKAGES="linux linux-firmware base base-devel cryptsetup btrfs-progs"
-declare -r NENTWORK_PACKAGES="networkmanager ufw"
-declare -r KDE_PACKAGES="plasma-meta xdg-desktop-portal-kde xwaylandvideobridge dolphin"
-declare -r HYPR_PACKAGES="hyprland xdg-desktop-portal-hyprland xdg-desktop-portal-kde polkit polkit-kde-agent qt5-wayland qt6-wayland gtk3 gtk4 waybar brightnessctl pavucontrol kitty dolphin"
-declare -r USERAPPS="neovim git man htop"
+declare -r NETWORK_PACKAGES="networkmanager ufw"
+
+declare -r KDE_PACKAGES="plasma-meta xwaylandvideobridge dolphin"
+
+declare -r WAYBAR_PACKGES="waybar ttf-font-awesome ttf-dejavu"
+declare -r HYPR_CONTROL_PACKAGES="pavucontrol brightnessctl"
+declare -r HYPR_APPS="dolhpin kitty gtk3" # gtk3 was needed otherwise kitty wouldn't launch
+declare -r HYPR_PACKAGES="hyprland xdg-desktop-portal-hyprland xdg-desktop-portal-kde xwaylandvideobridge polkit polkit-kde-agent qt6-wayland gtk4 $HYPR_CONTROL_PACKAGES $WAYBAR_PACKAGES $HYPR_APPS"
+declare -r USERAPPS="neovim git man htop openssh"
+declare -r WEBCORD_SCREENSHARING_FIX="xdg-dessktop-portal-gnome"
 
 partition_disk() {
 	# Clear disk partition table and set to GPT format
