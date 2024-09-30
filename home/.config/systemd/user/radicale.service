@@ -1,0 +1,10 @@
+[Unit]
+Description=A simple CalDAV (calendar) and CardDAV (contact) server
+
+[Service]
+WorkingDirectory=/home/ebbe/Sync/CalDAV en CardDAV
+ExecStart=/usr/bin/env python3 -m radicale --config=radicale.ini
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
