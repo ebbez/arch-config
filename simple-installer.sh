@@ -1,12 +1,13 @@
 #!/bin/bash
 
-subvol_names=("@ @home @pkg @log @tmp @snapshots @swap")
-subvol_mountpoints=("/ /home/ /var/cache/pacman/pkg /var/log /var/tmp /.snapshots /swap")
-base_packages="linux linux-firmware base base-devel cryptsetup btrfs-progs"
-network_packages="networkmanager ufw"
-kde_packages="plasma-meta xdg-desktop-portal-kde xwaylandvideobridge dolphin"
-hypr_packages="hyprland xdg-desktop-portal-hyprland xdg-desktop-portal-kde polkit polkit-kde-agent qt5-wayland qt6-wayland gtk3 gtk4 waybar brightnessctl pavucontrol kitty dolphin"
-userapps="neovim git man htop"
+declare -r SUBVOL_NAMES=("@ @home @pkg @log @tmp @snapshots @swap")
+declare -r SUBVOL_MOUNTPOINTS=("/ /home/ /var/cache/pacman/pkg /var/log /var/tmp /.snapshots /swap")
+
+declare -r BASE_PACKAGES="linux linux-firmware base base-devel cryptsetup btrfs-progs"
+declare -r NENTWORK_PACKAGES="networkmanager ufw"
+declare -r KDE_PACKAGES="plasma-meta xdg-desktop-portal-kde xwaylandvideobridge dolphin"
+declare -r HYPR_PACKAGES="hyprland xdg-desktop-portal-hyprland xdg-desktop-portal-kde polkit polkit-kde-agent qt5-wayland qt6-wayland gtk3 gtk4 waybar brightnessctl pavucontrol kitty dolphin"
+declare -r USERAPPS="neovim git man htop"
 
 partition_disk() {
 	# Clear disk partition table and set to GPT format
@@ -24,13 +25,13 @@ format_disk() {
 	mkfs.fat -F 32 ${1}1
 
 	cryptsetup luksFormat ${1}2
-	cryptsetup open $1 root
+	cryptsetup open ${1}2 root
 
 	mkfs.btrfs /dev/mapper/root
 
 	mount /dev/mapper/root /mnt
 
-	for subvol in $subvol_names; do
+	for subvol in $SUBVOL_NAMES; do
 		btrfs sub create /mnt/${subvol}
 	done;
 
@@ -38,27 +39,27 @@ format_disk() {
 }
 
 mount_parts() {
-	for i in ${!subvol_names[@]}; do
-		mount -o noatime,nodiratime,compress=zstd,x-mount.mkdir,subvol="${subvol_names[$i]}" /dev/mapper/root "${subvol_mountpoints[$i]}"
+	for i in ${!SUBVOL_NAMES[@]}; do
+		mount -o noatime,nodiratime,compress=zstd,x-mount.mkdir,subvol="${SUBVOL_NAMES[$i]}" /dev/mapper/root "${SUBVOL_MOUNTPOINTS[$i]}"
 	done;
 
 	mount -o x-mount.mkdir ${1}1 /mnt/efi
 }
-
-mount_parts
 
 exit 0
 
 echo -n "Disk to install Arch on: "
 read -e -i "/dev/" disk
 
-diskpart=$disk
+disk_part_prefix=$disk
 if [[ $disk =~ /dev/nvme0n[0-9] ]]; then
-	diskpart=${disk}p
+	disk_part_prefix=${disk}p
 fi;
 
 echo "Using ${disk} for block device path"
 echo "Using ${diskpart} for partition paths"
 
 #partition_disk $disk
-#format_disk $disk $diskpart
+#format_disk $disk_part_prefix
+#mount_parts $disk_part_prefix
+
