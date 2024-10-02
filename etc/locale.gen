@@ -155,7 +155,7 @@
 #en_GB ISO-8859-1  
 #en_HK.UTF-8 UTF-8  
 #en_HK ISO-8859-1  
-en_IE.UTF-8 UTF-8  
+#en_IE.UTF-8 UTF-8  
 #en_IE ISO-8859-1  
 #en_IE@euro ISO-8859-15  
 #en_IL UTF-8  
@@ -514,3 +514,4 @@ nl_NL.UTF-8 UTF-8
 #zh_TW BIG5  
 #zu_ZA.UTF-8 UTF-8  
 #zu_ZA ISO-8859-1  
+en_NL.UTF-8 UTF-8
