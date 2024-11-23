@@ -193,7 +193,7 @@ install_base() {
 	achrt sbctl enroll-keys -m
 
 	achrt sbctl sign -s /efi/EFI/Boot/Bootx64.efi
-	achrt sbctl sign -s /efi/EFI/Linux/arch-linux-fallback.efi
+achrt sbctl sign -s /efi/EFI/Linux/arch-linux-fallback.efi
 }
 
 ##### MAIN #####
@@ -209,7 +209,9 @@ fi;
 echo "Using ${disk} for block device path"
 echo "Using ${diskpart} for partition paths"
 
-#partition_disk $disk
-#format_disk $disk_part_prefix
-#mount_parts $disk_part_prefix
+partition_disk $disk
 
+read -i "Swap size (e.g. '12G'): " swapsize
+format_disk $disk_part_prefix swapsize
+mount_subvolumes $disk_part_prefix swapsize
+install_base
