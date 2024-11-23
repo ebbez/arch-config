@@ -75,6 +75,7 @@ partition_disk() {
 # formats partitions on the disk
 # @param disk device path with partition suffix if applicable (/dev/nvme0n1p for example)
 # @param swap size
+# @param need disk encrypytion
 # @return void
 #"
 format_disk() {
@@ -82,7 +83,9 @@ format_disk() {
 	mkfs.fat -F 32 ${1}1
 
 	# Encrypt and open root partition
-	cryptsetup luksFormat ${1}2
+	if [ $3 ]; then
+		cryptsetup luksFormat ${1}2
+	fi
 	cryptsetup open ${1}2 root
 
 	# Format root partition, make it Btrfs
@@ -132,13 +135,14 @@ achrt() {
 }
 
 auchrt() {
-	arch-chroot -u ebbe /mnt "$@"
+	arch-chroot -u ebbe /mnt/home/ebbe "$@"
 }
 
 #;
 # mount_subvolumes()
 # mounts the subvolumes of the root Btrfs partition
 # @parameter hostname
+# @parameter disk_part_prefix
 # @return void
 #"
 install_base() {
@@ -164,11 +168,11 @@ install_base() {
 	achrt sed -i '/default_options/s/^#//g' /etc/mkinitcpio.d/linux.preset
 
 	# Replace /boot/EFI with /efi/EFI
-	mkdir -p /efi/EFI/Linux
+	mkdir -p /mnt/efi/EFI/Linux
 	achrt sed -i 's/\/boot\/EFI\//\/efi\/EFI\//g' /etc/mkinitcpio.d/linux.preset
 
 	# Replace Linux/arch-linux.efi to BOOT/bootx64.efi
-	mkdir -p /efi/EFI/Boot
+	mkdir -p /mnt/efi/EFI/Boot
 	achrt sed -i 's/Linux\/arch-linux.efi/Boot\/Bootx64.efi/g' /etc/mkinitcpio.d/linux.preset
 
 	# Regenerate initramfs in UKI format and delete (cleanup unused) old initrds
@@ -180,6 +184,8 @@ install_base() {
 	achrt sed -i '/%wheel ALL=(ALL:ALL) ALL/s/^#//g' /etc/sudoers
 	achrt useradd -m ebbe -G wheel
 	achrt passwd ebbe
+
+	achrt pacman -Syu $DE_PACKAGES $USER_PACKAGES
 
 	auchrt git clone https://aur.archlinux.org/yay.git
 	auchrt cd yay && makepkg -si
@@ -193,7 +199,10 @@ install_base() {
 	achrt sbctl enroll-keys -m
 
 	achrt sbctl sign -s /efi/EFI/Boot/Bootx64.efi
-achrt sbctl sign -s /efi/EFI/Linux/arch-linux-fallback.efi
+	achrt sbctl sign -s /efi/EFI/Linux/arch-linux-fallback.efi
+
+	achrt mkdir /etc/cmdline.d
+	achrt "echo cryptdevice=UUID=\$(blkid -s UUID -o value {$2}2) > /etc/cmdline.d/root.conf"
 }
 
 ##### MAIN #####
