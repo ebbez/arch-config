@@ -63,7 +63,7 @@ partition_disk() {
 	sgdisk --zap-all $1
 
 	# Create 1GB EFI partition
-	sgdisk --new 0:0:+1G --typecode ef00 $1
+	sgdisk --new 0:0:+1G --typecode 0:ef00 $1
 
 	# Create root/LUKS container partition (0:0:0 are defaults <order>:<start>:<end>, in this case 2:1G:remainder of the disk)
 	sgdisk --new 0:0:0 $1
