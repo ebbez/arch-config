@@ -22,12 +22,12 @@ declare -r BASE_PACKAGES="
 	neovim 
 	sbctl
 	"
-# But leave at amd-ucode for now since AMD rocks
-#
+# But leave it being amd-ucode for now since AMD rocks
+
 declare -r DE_PACKAGES="
 	plasma 
 	sddm 
-	konsole 
+	kitty
 	dolphin 
 	kdeconnect 
 	filelight 
@@ -52,82 +52,80 @@ declare -r AUR_PACKAGES="
 
 ##### INSTALLER SECTIONS #####
 
-#;
-# partition_disk()
-# sets up the partition table on the disk
-# @param disk device path
-# @return void
-#"
 partition_disk() {
+	local disk=$1
+
 	# Clear disk partition table and set to GPT format
-	sgdisk --zap-all $1
+	sgdisk --zap-all $disk
 
 	# Create 1GB EFI partition
-	sgdisk --new 0:0:+1G --typecode 0:ef00 $1
+	sgdisk --new 0:0:+1G --typecode 0:ef00 $disk
 
 	# Create root/LUKS container partition (0:0:0 are defaults <order>:<start>:<end>, in this case 2:1G:remainder of the disk)
-	sgdisk --new 0:0:0 $1
+	sgdisk --new 0:0:0 $disk
 }
 
 
-#;
-# format_disk()
-# formats partitions on the disk
-# @param disk device path with partition suffix if applicable (/dev/nvme0n1p for example)
-# @param swap size
-# @param need disk encrypytion
-# @return void
-#"
 format_disk() {
+	local partition_path_prefix=$1 # e.g. /dev/sda or /dev/nvme0n1p 
+	local swap_size=$2 # e.g. "" or "8G"
+	local enable_disk_encryption=$3 # e.g. "Y", "y", "n", "N", "yes", "no"
+	local root_partition="${1}2" # e.g. /dev/nvme0n1p2 or /dev/mapper/root
+
 	# Format EFI partition, make it (V)FAT32
-	mkfs.fat -F 32 ${1}1
+	mkfs.fat -F 32 ${partition_path_prefix}1
 
 	# Encrypt and open root partition
-	if [ $3 ]; then
-		cryptsetup luksFormat ${1}2
+	if [[ $enable_disk_encryption =~ ^[Yy]$ ]]; then
+		cryptsetup luksFormat ${root_partition}
+		cryptsetup open ${root_partition} root
+		root_partition="/dev/mapper/root"
 	fi
-	cryptsetup open ${1}2 root
 
 	# Format root partition, make it Btrfs
-	mkfs.btrfs /dev/mapper/root
+	mkfs.btrfs $root_partition
 
 	# Mount root partition (top-level volume) to create subvolumes
-	mount /dev/mapper/root /mnt
+	mount $root_partition /mnt
 
 	# Create flat Btrfs layout
 	for subvol in $SUBVOL_NAMES; do
 		btrfs subvolume create /mnt/${subvol}
 	done;
 
-	# IF CREATE SWAP
-	btrfs subvolume create /mnt/@swap
-	btrfs filesystem mkswapfile --size $2 /mnt/swap/swapfile
+	if [ $swap_size != "" ]; then
+		btrfs subvolume create /mnt/@swap
+		btrfs filesystem mkswapfile --size $swap_size /mnt/swap/swapfile
+	fi
 
 	# Unmount top-level volume to free up /mnt
 	unmount /mnt
 }
 
-#;
-# mount_subvolumes()
-# mounts the subvolumes of the root Btrfs partition
-# @param swap size
-# @return void
-#"
 mount_subvolumes() {
+	local partition_path_prefix=$1
+	local swap_size=$2
+	local root_partition=${partition_path_prefix}2
+	
+	if [ -e /dev/mapper/root ]; then 
+		root_partition="/dev/mapper/root"; 
+	fi
+
 	for i in ${!SUBVOL_NAMES[@]}; do
 		# noatime, nodiratime => do not keep track of file and directory access times ("when they have been accessed/opened/edited")
 		# compress=zstd => opportunistic compression using zstd (fast) compression algorithm
 		# (USE compress-force INSTEAD OF compress TO FORCE COMPRESSION ALWAYS)
 		# subvol=x => mount the x subvolume from the top-level Btrfs volume/partition 
-		mount -o noatime,nodiratime,compress=zstd,x-mount.mkdir,subvol="${SUBVOL_NAMES[$i]}" /dev/mapper/root "${SUBVOL_MOUNTPOINTS[$i]}"
-	done;
+		mount -o noatime,nodiratime,compress=zstd,x-mount.mkdir,subvol="${SUBVOL_NAMES[$i]}" $root_partition "${SUBVOL_MOUNTPOINTS[$i]}"
+	done
 
-	# IF SWAP
-	mount -o noatime,nodiratime,subvol=@swap /dev/mapper/root /mnt/swap
-	swapon /mnt/swap/swapfile
+	if [ $swap_size != "" ]; then
+		mount -o noatime,nodiratime,subvol=@swap $root_partition /mnt/swap
+		swapon /mnt/swap/swapfile
+	fi
 
 	# Mount the EFI partition
-	mount -o x-mount.mkdir ${1}1 /mnt/efi
+	mount -o x-mount.mkdir ${partition_path_prefix}1 /mnt/efi
 }
 
 achrt() {
@@ -135,17 +133,16 @@ achrt() {
 }
 
 auchrt() {
-	arch-chroot -u ebbe /mnt/home/ebbe "$@"
+	arch-chroot -u $user /mnt/home/$user "$@"
 }
 
-#;
-# mount_subvolumes()
-# mounts the subvolumes of the root Btrfs partition
-# @parameter hostname
-# @parameter disk_part_prefix
-# @return void
-#"
 install_base() {
+	local hostname=$1
+	local user=$2
+	local partition_path_prefix=$3
+	local swap_size=$4
+	local root_partition=${partition_path_prefix}2
+
 	pacstrap /mnt $BASE_PACKAGES 
 
 	genfstab -U /mnt > /mnt/etc/fstab
@@ -202,25 +199,40 @@ install_base() {
 	achrt sbctl sign -s /efi/EFI/Linux/arch-linux-fallback.efi
 
 	achrt mkdir /etc/cmdline.d
-	achrt "echo cryptdevice=UUID=\$(blkid -s UUID -o value {$2}2) > /etc/cmdline.d/root.conf"
+	if [ -e /dev/mapper/root ]; then
+		achrt "echo \"cryptdevice=UUID=\$(blkid -s UUID -o value ${root_partition})=root root=/dev/mapper/root\" > /etc/cmdline.d/root.conf"
+	else
+		achrt "echo root=${root_partition} > /etc/cmdline.d/root.conf"
+	fi
+
+	achrt "echo \" rootflags=subvol=@ rw rootfstype=btrfs\" >> /etc/cmdline.d/root.conf"
+
+	if [ "${swap_size}" = "" ]; then
+		# ENABLE ZRAM
+		achrt "echo zswap.enabled=0 > /etc/cmdline.d/zram.conf"
+	fi
 }
 
 ##### MAIN #####
 echo -n "Disk to install Arch on: "
 read -e -i "/dev/" disk
 
-disk_part_prefix=$disk
+partition_path_prefix=$disk
 if [[ $disk =~ /dev/nvme0n[0-9] ]]; then
 	# Append 'p' to the disk device path if nvme because all partition paths arre suffixed with p
-	disk_part_prefix=${disk}p
+	partition_path_prefix=${disk}p
 fi;
 
 echo "Using ${disk} for block device path"
-echo "Using ${diskpart} for partition paths"
+echo "Using ${partition_path_prefix} for partition paths"
 
-partition_disk $disk
+partition_disk ${disk}
 
-read -i "Swap size (e.g. '12G'): " swapsize
-format_disk $disk_part_prefix swapsize
-mount_subvolumes $disk_part_prefix swapsize
-install_base
+read -i "Swap size (e.g. '12G') or leave empty for zram: " swap_size
+read -i "Enable disk encryption? (y/n)" enable_encryption
+format_disk "${partition_path_prefix}" "${swap_size}" "${enable_encryption}" 
+mount_subvolumes "${partition_path_prefix}" "${swap_size}"
+
+read -i "Hostname: " hostname
+read -i "Username: " username
+install_base $hostname $username $partition_path_prefix $swap_size
