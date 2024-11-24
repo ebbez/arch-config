@@ -99,7 +99,7 @@ format_disk() {
 	fi
 
 	# Unmount top-level volume to free up /mnt
-	unmount /mnt
+	umount /mnt
 }
 
 mount_subvolumes() {
@@ -116,11 +116,11 @@ mount_subvolumes() {
 		# compress=zstd => opportunistic compression using zstd (fast) compression algorithm
 		# (USE compress-force INSTEAD OF compress TO FORCE COMPRESSION ALWAYS)
 		# subvol=x => mount the x subvolume from the top-level Btrfs volume/partition 
-		mount -o noatime,nodiratime,compress=zstd,x-mount.mkdir,subvol="${SUBVOL_NAMES[$i]}" $root_partition "${SUBVOL_MOUNTPOINTS[$i]}"
+		mount -o noatime,nodiratime,compress=zstd,x-mount.mkdir,subvol="${SUBVOL_NAMES[$i]}" $root_partition /mnt/"${SUBVOL_MOUNTPOINTS[$i]}"
 	done
 
 	if [ $swap_size != "" ]; then
-		mount -o noatime,nodiratime,subvol=@swap $root_partition /mnt/swap
+		mount -o noatime,nodiratime,x-mount.mkdir,subvol=@swap $root_partition /mnt/swap
 		swapon /mnt/swap/swapfile
 	fi
 
