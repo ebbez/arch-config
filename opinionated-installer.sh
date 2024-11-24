@@ -95,7 +95,7 @@ format_disk() {
 
 	if [ $swap_size != "" ]; then
 		btrfs subvolume create /mnt/@swap
-		btrfs filesystem mkswapfile --size $swap_size /mnt/swap/swapfile
+		btrfs filesystem mkswapfile --size $swap_size /mnt/@swap/swapfile
 	fi
 
 	# Unmount top-level volume to free up /mnt
