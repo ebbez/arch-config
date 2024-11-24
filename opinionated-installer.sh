@@ -70,7 +70,7 @@ format_disk() {
 	local partition_path_prefix=$1 # e.g. /dev/sda or /dev/nvme0n1p 
 	local swap_size=$2 # e.g. "" or "8G"
 	local enable_disk_encryption=$3 # e.g. "Y", "y", "n", "N", "yes", "no"
-	local root_partition="${1}2" # e.g. /dev/nvme0n1p2 or /dev/mapper/root
+	local root_partition="${partition_path_prefix}2" # e.g. /dev/nvme0n1p2 or /dev/mapper/root
 
 	# Format EFI partition, make it (V)FAT32
 	mkfs.fat -F 32 ${partition_path_prefix}1
@@ -228,11 +228,11 @@ echo "Using ${partition_path_prefix} for partition paths"
 
 partition_disk ${disk}
 
-read -i "Swap size (e.g. '12G') or leave empty for zram: " swap_size
-read -i "Enable disk encryption? (y/n)" enable_encryption
+read -p "Swap size (e.g. '12G') or leave empty for zram: " swap_size
+read -p "Enable disk encryption? (y/n)" enable_encryption
 format_disk "${partition_path_prefix}" "${swap_size}" "${enable_encryption}" 
 mount_subvolumes "${partition_path_prefix}" "${swap_size}"
 
-read -i "Hostname: " hostname
-read -i "Username: " username
+read -p "Hostname: " hostname
+read -p "Username: " username
 install_base $hostname $username $partition_path_prefix $swap_size
