@@ -1,0 +1,7 @@
+[user]
+	email = 7920708+ebbez@users.noreply.github.com
+	name = Ebbez
+[push]
+	autoSetupRemote = true
+[core]
+	editor = vim
