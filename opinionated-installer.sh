@@ -2,6 +2,23 @@
 
 ###### CONFIG #######
 
+### SECTIONS ###
+declare -r SECTIONS=(
+		partition_disk 
+		format_disk 
+		mount_subvolumes 
+		install_base 
+		set_hostname 
+		set_locale 
+		set_uki 
+		set_kernel_parameters 
+		set_user install_de 
+		install_user_apps 
+		install_aur_helper 
+		install_aur_packages 
+		set_en_eu_locale set_secure_boot
+	)
+
 ### SUBVOLUMES ###
 declare -r SUBVOL_NAMES=("@ @home @pkg @log @tmp @snapshots")
 declare -r SUBVOL_MOUNTPOINTS=("/ /home/ /var/cache/pacman/pkg /var/log /var/tmp /.snapshots")
@@ -49,11 +66,63 @@ declare -r AUR_PACKAGES="
 	locale-en-nl-git
 	"
 
+##### INSTALLER HELPER FUNCTIONS #####
+function prompt_disk {
+
+	echo -n "Disk: "
+	read -e -i "/dev/" disk
+
+	partition_path_prefix=$disk
+	if [[ $disk =~ /dev/nvme0n[0-9] ]]; then
+		# Append 'p' to the disk device path if nvme because all partition paths arre suffixed with p
+		partition_path_prefix=${disk}p
+	fi
+}
+
+function ensure_disk {
+	if [ -n $disk ]; then return; fi
+
+	read -p "Do you already have a partitioned disk? (y/n): " have_partitioned_disk
+	if [[ $have_partitioned_disk =~ ^[Yy]$ ]]; then
+		prompt_disk
+	else
+		partition_disk
+	fi
+}
+
+function ensure_root_partition {
+	if [ -n $root_partition ]; then return; fi
+
+	read -p "Do you already have a formatted disk? (y/n): " have_formatted_disk
+	if [[ $have_formatted_disk =~ ^[Yy]$ ]]; then
+		if [ -z $disk ]; then
+			prompt_disk
+		fi
+
+		read -p "Is the root partition encrypted? (y/n): " enable_disk_encryption
+		if [[ $enable_disk_encryption =~ ^[Yy]$ ]]; then
+			cryptsetup open "${partition_path_prefix}2" root
+			root_partition="/dev/mapper/root"
+		else
+			root_partition="${partition_path_prefix}2"
+		fi
+
+	else
+		echo "Please re-run the installer to partition and format the disk"
+	fi
+}
 
 ##### INSTALLER SECTIONS #####
+function partition_disk {
+	echo "
+	Partition disk
+	> Will wipe and set disk partition table type to GPT
+	Partition #1: 1GB EFI partition
+	Partition #2: Remaining/leftover space for root partition
+	"
+	echo
 
-partition_disk() {
-	local disk=$1
+	prompt_disk
 
 	# Clear disk partition table and set to GPT format
 	sgdisk --zap-all $disk
@@ -66,11 +135,8 @@ partition_disk() {
 }
 
 
-format_disk() {
-	local partition_path_prefix=$1 # e.g. /dev/sda or /dev/nvme0n1p 
-	local swap_size=$2 # e.g. "" or "8G"
-	local enable_disk_encryption=$3 # e.g. "Y", "y", "n", "N", "yes", "no"
-	local root_partition="${partition_path_prefix}2" # e.g. /dev/nvme0n1p2 or /dev/mapper/root
+function format_disk {
+	ensure_disk
 
 	# Format EFI partition, make it (V)FAT32
 	mkfs.fat -F 32 ${partition_path_prefix}1
@@ -80,6 +146,8 @@ format_disk() {
 		cryptsetup luksFormat ${root_partition}
 		cryptsetup open ${root_partition} root
 		root_partition="/dev/mapper/root"
+	else
+		root_partition="${partition_path_prefix}2"
 	fi
 
 	# Format root partition, make it Btrfs
@@ -93,23 +161,18 @@ format_disk() {
 		btrfs subvolume create /mnt/${subvol}
 	done;
 
+	read -p "Swap size (e.g. '12G', or leave empty to skip): " swap_size
 	if [ $swap_size != "" ]; then
 		btrfs subvolume create /mnt/@swap
-		btrfs filesystem mkswapfile --size $swap_size /mnt/@swap/swapfile
+		btrfs filesystem mkswapfile --size "${swap_size}" /mnt/@swap/swapfile
 	fi
 
 	# Unmount top-level volume to free up /mnt
 	umount /mnt
 }
 
-mount_subvolumes() {
-	local partition_path_prefix=$1
-	local swap_size=$2
-	local root_partition=${partition_path_prefix}2
-	
-	if [ -e /dev/mapper/root ]; then 
-		root_partition="/dev/mapper/root"; 
-	fi
+function mount_subvolumes {
+	ensure_root_partition
 
 	for i in ${!SUBVOL_NAMES[@]}; do
 		# noatime, nodiratime => do not keep track of file and directory access times ("when they have been accessed/opened/edited")
@@ -128,76 +191,53 @@ mount_subvolumes() {
 	mount -o x-mount.mkdir ${partition_path_prefix}1 /mnt/efi
 }
 
-achrt() {
-	arch-chroot /mnt "$@"
-}
-
-auchrt() {
-	arch-chroot -u $user /mnt/home/$user "$@"
-}
-
-install_base() {
-	local hostname=$1
-	local user=$2
-	local partition_path_prefix=$3
-	local swap_size=$4
-	local root_partition=${partition_path_prefix}2
+function install_base {
+	ensure_root_partition
 
 	pacstrap /mnt $BASE_PACKAGES 
 
 	genfstab -U /mnt > /mnt/etc/fstab
+}
 
-	achrt ln -sf /usr/share/zoneinfo/Europe/Amsterdam /etc/localtime
-	achrt timedatectl set-ntp true
-	achrt hwclock --systohc
+function set_locale {
+	ensure_root_partition
 
-	achrt sed -i '/en_US.UTF-8/s/^#//g' /etc/locale.gen
-	achrt locale-gen
-	achrt echo LANG=en_US.UTF_8 > /etc/locale.conf
+	arch-chroot /mnt ln -sf /usr/share/zoneinfo/Europe/Amsterdam /etc/localtime
+	arch-chroot /mnt timedatectl set-ntp true
+	arch-chroot /mnt hwclock --systohc
 
+	arch-chroot sed -i '/en_US.UTF-8/s/^#//g' /etc/locale.gen
+	arch-chroot /mnt locale-gen
+	arch-chroot /mnt /bin/bash -c "echo LANG=en_US.UTF_8 > /etc/locale.conf"
+}
+
+function set_uki {
+	ensure_root_partition
+	
 	# Comment out the *_image= lines
-	achrt sed -i '/default_image=/s/^/#/g' /etc/mkinitcpio.d/linux.preset
-	achrt sed -i '/fallback_image=/s/^/#/g' /etc/mkinitcpio.d/linux.preset
+	sed -i '/default_image=/s/^/#/g' /mnt/etc/mkinitcpio.d/linux.preset
+	sed -i '/fallback_image=/s/^/#/g' /mnt/etc/mkinitcpio.d/linux.preset
 
 	# Uncomment the UKI lines
-	achrt sed -i '/default_uki/s/^#//g' /etc/mkinitcpio.d/linux.preset
-	achrt sed -i '/fallback_uki/s/^#//g' /etc/mkinitcpio.d/linux.preset
-	achrt sed -i '/default_options/s/^#//g' /etc/mkinitcpio.d/linux.preset
+	sed -i '/default_uki/s/^#//g' /mnt/etc/mkinitcpio.d/linux.preset
+	sed -i '/fallback_uki/s/^#//g' /mnt/etc/mkinitcpio.d/linux.preset
+	sed -i '/default_options/s/^#//g' /mnt/etc/mkinitcpio.d/linux.preset
 
 	# Replace /boot/EFI with /efi/EFI
-	mkdir -p /mnt/efi/EFI/Linux
-	achrt sed -i 's/\/boot\/EFI\//\/efi\/EFI\//g' /etc/mkinitcpio.d/linux.preset
+	arch-chroot /mnt mkdir -p /efi/EFI/Linux
+	sed -i 's/\/boot\/EFI\//\/efi\/EFI\//g' /mnt/etc/mkinitcpio.d/linux.preset
 
 	# Replace Linux/arch-linux.efi to BOOT/bootx64.efi
-	mkdir -p /mnt/efi/EFI/Boot
-	achrt sed -i 's/Linux\/arch-linux.efi/Boot\/Bootx64.efi/g' /etc/mkinitcpio.d/linux.preset
+	arch-chroot /mnt mkdir -p /efi/EFI/Boot
+	sed -i 's/Linux\/arch-linux.efi/Boot\/Bootx64.efi/g' /mnt/etc/mkinitcpio.d/linux.preset
 
 	# Regenerate initramfs in UKI format and delete (cleanup unused) old initrds
-	achrt mkinitcpio -P
-	achrt rm /boot/initramfs*
+	arch-chroot /mnt mkinitcpio -P
+	rm /mnt/boot/initramfs*
+}
 
-	achrt echo $1 > /etc/hostname
 
-	achrt sed -i '/%wheel ALL=(ALL:ALL) ALL/s/^#//g' /etc/sudoers
-	achrt useradd -m ebbe -G wheel
-	achrt passwd ebbe
-
-	achrt pacman -Syu $DE_PACKAGES $USER_PACKAGES
-
-	auchrt git clone https://aur.archlinux.org/yay.git
-	auchrt cd yay && makepkg -si
-
-	auchrt yay -S $AUR_PACKAGES
-	achrt sed -i '/en_NL.UTF-8/s/^#//g' /etc/locale.gen
-	achrt locale-gen
-	achrt echo LANG=en_NL.UTF_8 > /etc/locale.conf
-
-	achrt sbctl create-keys
-	achrt sbctl enroll-keys -m
-
-	achrt sbctl sign -s /efi/EFI/Boot/Bootx64.efi
-	achrt sbctl sign -s /efi/EFI/Linux/arch-linux-fallback.efi
-
+function set_kernel_parameters {
 	achrt mkdir /etc/cmdline.d
 	if [ -e /dev/mapper/root ]; then
 		achrt "echo \"cryptdevice=UUID=\$(blkid -s UUID -o value ${root_partition})=root root=/dev/mapper/root\" > /etc/cmdline.d/root.conf"
@@ -213,26 +253,71 @@ install_base() {
 	fi
 }
 
-##### MAIN #####
-echo -n "Disk to install Arch on: "
-read -e -i "/dev/" disk
+function set_hostname {
+	echo $1 > /etc/hostname
+}
 
-partition_path_prefix=$disk
-if [[ $disk =~ /dev/nvme0n[0-9] ]]; then
-	# Append 'p' to the disk device path if nvme because all partition paths arre suffixed with p
-	partition_path_prefix=${disk}p
-fi;
+function set_user {
+	sed -i '/%wheel ALL=(ALL:ALL) ALL/s/^#//g' /etc/sudoers
+	useradd -m ebbe -G wheel
+	passwd ebbe
+}
 
-echo "Using ${disk} for block device path"
-echo "Using ${partition_path_prefix} for partition paths"
+function install_de {
+	pacstrap /mnt $DE_PACKAGES
+}
 
-partition_disk ${disk}
+function install_user_apps {
+	pacstrap /mnt $USER_PACKAGES
+}
 
-read -p "Swap size (e.g. '12G') or leave empty for zram: " swap_size
-read -p "Enable disk encryption? (y/n)" enable_encryption
-format_disk "${partition_path_prefix}" "${swap_size}" "${enable_encryption}" 
-mount_subvolumes "${partition_path_prefix}" "${swap_size}"
+function install_aur_helper {
+	arch-chroot /mnt/home/$user -u $user /bin/bash -c "git clone https://aur.archlinux.org/yay.git"
+	arch-chroot /mnt/home/$user -u $user /bin/bash -c "cd yay && makepkg -si"
+}
 
-read -p "Hostname: " hostname
-read -p "Username: " username
-install_base $hostname $username $partition_path_prefix $swap_size
+function install_aur_packages {
+	auchrt yay -S $AUR_PACKAGES
+}
+
+function set_en_eu_locale {
+	achrt sed -i '/en_NL.UTF-8/s/^#//g' /etc/locale.gen
+	achrt locale-gen
+	achrt echo LANG=en_NL.UTF_8 > /etc/locale.conf
+}
+
+function set_secure_boot {
+	achrt sbctl create-keys
+	achrt sbctl enroll-keys -m
+
+	achrt sbctl sign -s /efi/EFI/Boot/Bootx64.efi
+	achrt sbctl sign -s /efi/EFI/Linux/arch-linux-fallback.efi
+}
+
+
+function full_install {
+	echo "Hello world"
+}
+
+function step_install {
+	echo "These steps are available for installion:"
+	echo
+	for i in ${!SECTIONS[@]}; do
+		echo "${i}. ${SECTIONS[$i]}"
+	done
+
+	read -r -p "Enter the number of step : " stepno
+
+	stepno=$[$stepno-1]
+	while [ $stepno -lt ${#SECTIONS[*]} ]
+	do
+		${SECTIONS[$stepno]}
+		stepno=$[$stepno+1]
+	done
+}
+
+function main {
+	step_install
+}
+
+main
